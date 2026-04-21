@@ -1,0 +1,73 @@
+# .clang-format for iv18-clock
+#
+# Based on LLVM style with adjustments matching the project's existing layout:
+#  - 4-space indentation, no tabs
+#  - Opening brace on the same line for functions and control statements
+#  - 120 column limit (embedded code tends to have long register/constant names)
+#  - One parameter per line when the function signature does not fit in one line
+#  - Aligned trailing comments and consecutive assignments
+
+BasedOnStyle: LLVM
+Language: Cpp
+
+# Indentation
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+NamespaceIndentation: None
+
+# Line length
+ColumnLimit: 120
+
+# Braces
+BreakBeforeBraces: Attach
+Cpp11BracedListStyle: true
+
+# Spaces
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+SpaceBeforeAssignmentOperators: true
+SpaceInEmptyParentheses: false
+SpacesBeforeTrailingComments: 4
+
+# Pointer alignment (uint8_t *p, not uint8_t* p)
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# Function parameters: one per line if signature doesn't fit
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackParameters: false
+BinPackArguments: true
+AllowAllArgumentsOnNextLine: true
+
+# Alignment — preserves the "columnar" look in constants and I2C_Write_Byte calls
+AlignConsecutiveMacros: true
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: true
+AlignOperands: true
+AlignAfterOpenBracket: Align
+
+# Short statements
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+
+# case indentation
+IndentCaseLabels: false
+
+# Includes — sort them within blocks, but don't reorder across blocks
+SortIncludes: false
+
+# Line breaks
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+
+# Misc
+ReflowComments: false

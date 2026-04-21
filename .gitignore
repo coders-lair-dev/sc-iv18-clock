@@ -1,0 +1,38 @@
+# Build artifacts (STM32CubeIDE / Eclipse CDT)
+Debug/
+Release/
+*.o
+*.d
+*.su
+*.cyclo
+*.map
+*.list
+*.elf
+*.bin
+
+# Eclipse / CubeIDE workspace
+.settings/
+.metadata/
+
+# CubeMX internal state (regenerated from .ioc on open)
+.mxproject
+
+# Backup / temporary files
+*_org
+*.bak
+*.swp
+*~
+*.log
+
+*.dch
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE — VSCode (on the off chance someone opens the folder there)
+.vscode/
+
+# Local experimentation
+scratch/
+tmp/
