@@ -1,10 +1,3 @@
-/*
- * ds3231.h
- *
- *  Created on: 18 июл. 2018 г.
- *      Author: scahr
- */
-
 #ifndef DS3231_H_
 #define DS3231_H_
 
@@ -116,7 +109,7 @@ extern volatile uint8_t ds3231_buffer[8];
 // Temperature register (0x11) MSB bit position
 #define DS3231_SIGN 7    // Sign bit of temperature (two's complement)
 
-// Выбор частоты выходного сигнала INT/SQW
+// INT/SQW frequency
 
 #define DS3231_SQW_OUT_1HZ  0x00    // 1 Гц
 #define DS3231_SQW_OUT_1KHZ 0x08    // 1.024 кГц
@@ -142,9 +135,6 @@ extern volatile uint8_t ds3231_buffer[8];
 #define DS3231_ALARM_1_ON   0x01
 #define DS3231_ALARM_2_ON   0x02
 #define DS3231_ALARM_ALL_ON 0x03
-
-void DS3231_ReadData();
-void DS3231_ReadData(void);
 
 void DS3231_ReadData(void);
 

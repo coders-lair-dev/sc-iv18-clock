@@ -30,6 +30,19 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f0xx_hal.h"
 
+#include "stm32f0xx_ll_spi.h"
+#include "stm32f0xx_ll_usart.h"
+#include "stm32f0xx_ll_rcc.h"
+#include "stm32f0xx_ll_bus.h"
+#include "stm32f0xx_ll_cortex.h"
+#include "stm32f0xx_ll_system.h"
+#include "stm32f0xx_ll_utils.h"
+#include "stm32f0xx_ll_pwr.h"
+#include "stm32f0xx_ll_gpio.h"
+#include "stm32f0xx_ll_dma.h"
+
+#include "stm32f0xx_ll_exti.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -58,19 +71,19 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define BTN_1_Pin          GPIO_PIN_0
-#define BTN_1_GPIO_Port    GPIOA
-#define BTN_1_EXTI_IRQn    EXTI0_1_IRQn
-#define BTN_2_Pin          GPIO_PIN_1
-#define BTN_2_GPIO_Port    GPIOA
-#define BTN_2_EXTI_IRQn    EXTI0_1_IRQn
-#define BTN_3_Pin          GPIO_PIN_4
-#define BTN_3_GPIO_Port    GPIOA
-#define BTN_3_EXTI_IRQn    EXTI4_15_IRQn
-#define VFD_LOAD_Pin       GPIO_PIN_6
+#define BTN_1_Pin GPIO_PIN_0
+#define BTN_1_GPIO_Port GPIOA
+#define BTN_1_EXTI_IRQn EXTI0_1_IRQn
+#define BTN_2_Pin GPIO_PIN_1
+#define BTN_2_GPIO_Port GPIOA
+#define BTN_2_EXTI_IRQn EXTI0_1_IRQn
+#define BTN_3_Pin GPIO_PIN_4
+#define BTN_3_GPIO_Port GPIOA
+#define BTN_3_EXTI_IRQn EXTI4_15_IRQn
+#define VFD_LOAD_Pin GPIO_PIN_6
 #define VFD_LOAD_GPIO_Port GPIOA
-#define BUZZ_Pin           GPIO_PIN_1
-#define BUZZ_GPIO_Port     GPIOB
+#define BUZZ_Pin GPIO_PIN_1
+#define BUZZ_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

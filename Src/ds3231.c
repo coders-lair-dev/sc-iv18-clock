@@ -70,7 +70,7 @@ uint8_t I2C_Read_Byte(I2C_HandleTypeDef *handle, uint8_t DEV_ADDR, uint8_t addr)
 
 void DS3231_ReadData() {
     ds3231_buffer[0] = 0;
-    I2C_WriteBuffer(&hi2c1, (uint16_t)DS3231_ADDR << 1, 1);    //Передадим адрес устройству
+    I2C_WriteBuffer(&hi2c1, (uint16_t)DS3231_ADDR << 1, 1);
 
     I2C_ReadBuffer(&hi2c1, (uint16_t)DS3231_ADDR << 1, 7);
 
@@ -86,8 +86,7 @@ void DS3231_ReadData() {
     ds3231_Temp.temp_1 = I2C_Read_Byte(&hi2c1, (uint16_t)DS3231_ADDR << 1, DS3231_T_MSB);
     uint8_t temp2 = I2C_Read_Byte(&hi2c1, (uint16_t)DS3231_ADDR << 1, DS3231_T_LSB);
 
-    temp2 = (temp2 / 128);    // сдвигаем на 6 - точность 0,25 (2 бита)
-    // сдвигаем на 7 - точность 0,5 (1 бит)
+    temp2 = (temp2 / 128);
     ds3231_Temp.temp_2 = temp2 * 5;
 }
 

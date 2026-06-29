@@ -36,3 +36,5 @@ Thumbs.db
 # Local experimentation
 scratch/
 tmp/
+/.idea/
+/cmake-build-debug/
