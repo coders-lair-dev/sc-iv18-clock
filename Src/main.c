@@ -92,8 +92,13 @@
 #define SELECTED_POSITION_LAST   SELECTED_POSITION_THIRD
 
 #define MODE_TIMEOUT_TIME  35
-#define MODE_TIMEOUT_DATE  7
+#define MODE_TIMEOUT_DATE  9
 #define MODE_TIMEOUT_OTHER 5
+
+#define VFD_BR_MAX      8
+#define BREATH_STEP_MS  90    // ms per step; 90 × 16 = 1.45 s/cycle
+#define ANIM_STEP_MS    60
+#define NOT_DIGIT_VALUE 0xFF
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -119,9 +124,17 @@ static const uint8_t VFD_GRIDS[] = {
 static const uint8_t VFD_DIGITS[] = {VFD_DIGIT_0, VFD_DIGIT_1, VFD_DIGIT_2, VFD_DIGIT_3, VFD_DIGIT_4,
                                      VFD_DIGIT_5, VFD_DIGIT_6, VFD_DIGIT_7, VFD_DIGIT_8, VFD_DIGIT_9};
 
+static const uint8_t gamma_lut[] = {1, 1, 2, 3, 4, 5, 6, 8, 8, 6, 5, 4, 3, 2, 1, 1};
+
+#define GAMMA_STEPS (sizeof(gamma_lut))
+
+static uint8_t breathIdx = 0;
+static uint32_t lastBreathTick = 0;
+
 typedef struct {
     uint8_t segments;    // VFD_DIGIT_x / VFD_CHAR_x / 0
     uint8_t dot;
+    uint8_t brightness;    // 0..VFD_BR_MAX; for digits always = VFD_BR_MAX
 } VfdCell;
 
 volatile VfdCell frame[9];
@@ -141,6 +154,16 @@ volatile uint8_t modeTimeout = 0;
 volatile uint8_t halfSeconds = 0;
 volatile uint8_t shouldReadDS3231 = 0;
 
+static uint8_t pwmPhase = 0;    // 0..VFD_BR_MAX-1, one step per frame
+
+static uint8_t animationDigitCurrent[9];
+static uint8_t animationDigitTarget[9];
+static uint8_t isAnimationInProgress = 0;
+static uint32_t lastAnimationTick = 0;
+
+volatile uint8_t pendingMode = 0;
+volatile uint8_t pendingTransition = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -148,6 +171,11 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 static inline void vfd_multiplex_tick(void);
 static void build_frame(void);
+static uint8_t breathing_level(void);
+static void anim_start(uint8_t targetMode);
+static void anim_step(void);
+static uint8_t fwd_dist(uint8_t a, uint8_t b);
+static void fill_target_digits(uint8_t mode, uint8_t *t);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -197,28 +225,38 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         case MODE_SHOW_TIME:
             if (modeTimeout == MODE_TIMEOUT_TIME) {
                 modeTimeout = 0;
-                currentMode = MODE_SHOW_DATE;
+                pendingMode = MODE_SHOW_DATE;
+                pendingTransition = 1;
             }
-
             break;
-
         case MODE_SHOW_DATE:
             if (modeTimeout == MODE_TIMEOUT_DATE) {
                 modeTimeout = 0;
-                currentMode = MODE_SHOW_TEMP_DAY;
+                pendingMode = MODE_SHOW_TEMP_DAY;
+                pendingTransition = 1;
             }
-
             break;
-
         case MODE_SHOW_TEMP_DAY:
             if (modeTimeout == MODE_TIMEOUT_OTHER) {
                 modeTimeout = 0;
-                currentMode = MODE_SHOW_TIME;
+                pendingMode = MODE_SHOW_TIME;
+                pendingTransition = 1;
             }
-
             break;
         }
     }
+}
+
+static uint8_t breathing_level(void) {
+    uint32_t now = HAL_GetTick();
+
+    if (now - lastBreathTick >= BREATH_STEP_MS) {
+        lastBreathTick = now;
+        if (++breathIdx >= GAMMA_STEPS)
+            breathIdx = 0;
+    }
+
+    return gamma_lut[breathIdx];
 }
 
 static inline void spi_send3(void) {
@@ -234,10 +272,114 @@ static inline void spi_send3(void) {
     }
 }
 
+static uint8_t fwd_dist(uint8_t a, uint8_t b) {
+    return (uint8_t)((b + 10 - a) % 10);
+}
+
+static void anim_step(void) {
+    if (!isAnimationInProgress) {
+        return;
+    }
+
+    uint32_t now = HAL_GetTick();
+    if (now - lastAnimationTick < ANIM_STEP_MS) {
+        return;
+    }
+
+    lastAnimationTick = now;
+
+    uint8_t anyMoving = 0;
+
+    for (uint8_t i = 1; i <= 8; i++) {
+        if (animationDigitTarget[i] == NOT_DIGIT_VALUE) {
+            continue;
+        }
+
+        if (animationDigitCurrent[i] == animationDigitTarget[i]) {
+            continue;
+        }
+
+        uint8_t up = fwd_dist(animationDigitCurrent[i], animationDigitTarget[i]);
+        uint8_t down = (uint8_t)(10 - up);
+
+        if (up <= down) {
+            animationDigitCurrent[i] = (uint8_t)((animationDigitCurrent[i] + 1) % 10);
+        } else {
+            animationDigitCurrent[i] = (uint8_t)((animationDigitCurrent[i] + 9) % 10);
+        }
+
+        anyMoving = 1;
+    }
+
+    if (!anyMoving) {
+        isAnimationInProgress = 0;
+        currentMode = pendingMode;
+    }
+}
+
+static void anim_start(uint8_t targetMode) {
+    uint8_t src[9];
+
+    fill_target_digits(currentMode, src);
+    fill_target_digits(targetMode, animationDigitTarget);
+
+    for (uint8_t i = 1; i <= 8; i++) {
+        animationDigitCurrent[i] = (src[i] == NOT_DIGIT_VALUE) ? 0 : src[i];
+    }
+
+    isAnimationInProgress = 1;
+    lastAnimationTick = HAL_GetTick();
+}
+
+static void fill_target_digits(uint8_t mode, uint8_t *t) {
+    for (uint8_t i = 1; i <= 8; i++) {
+        t[i] = NOT_DIGIT_VALUE;    // по умолчанию — не участвует
+    }
+
+    switch (mode) {
+    case MODE_SHOW_TIME:
+        t[8] = ds3231_Time.hour / 10;
+        t[7] = ds3231_Time.hour % 10;
+
+        t[5] = ds3231_Time.minutes / 10;
+        t[4] = ds3231_Time.minutes % 10;
+
+        t[2] = ds3231_Time.seconds / 10;
+        t[1] = ds3231_Time.seconds % 10;
+        break;
+
+    case MODE_SHOW_DATE:
+        t[8] = ds3231_Date.date / 10;
+        t[7] = ds3231_Date.date % 10;
+        t[6] = ds3231_Date.month / 10;
+        t[5] = ds3231_Date.month % 10;
+        t[4] = 2;
+        t[3] = 0;
+        t[2] = ds3231_Date.year / 10;
+        t[1] = ds3231_Date.year % 10;
+        break;
+
+    case MODE_SHOW_TEMP_DAY:
+        t[8] = ds3231_Temp.temp_1 / 10;
+        t[7] = ds3231_Temp.temp_1 % 10;
+
+        t[1] = ds3231_Date.day;
+        break;
+    }
+}
+
 static inline void vfd_multiplex_tick(void) {
+    uint8_t seg = frame[curGrid].segments;
+    uint8_t dot = frame[curGrid].dot;
+
+    if (frame[curGrid].brightness <= pwmPhase) {
+        seg = 0;
+        dot = 0;
+    }
+
     vfdBuf[2] = VFD_GRIDS[curGrid];
-    vfdBuf[1] = frame[curGrid].segments;
-    vfdBuf[0] = frame[curGrid].dot;
+    vfdBuf[1] = seg;
+    vfdBuf[0] = dot;
 
     VFD_LOAD_OFF;
 
@@ -247,59 +389,72 @@ static inline void vfd_multiplex_tick(void) {
 
     if (++curGrid > 8) {
         curGrid = 1;
+
+        if (++pwmPhase >= VFD_BR_MAX) {
+            pwmPhase = 0;
+        }
     }
 }
 
 static void build_frame(void) {
     VfdCell f[9];
-
     for (uint8_t i = 1; i <= 8; i++) {
         f[i].segments = 0;
         f[i].dot = 0;
+        f[i].brightness = VFD_BR_MAX;
     }
 
-    switch (currentMode) {
-    case MODE_SHOW_TIME:
-        f[8].segments = VFD_DIGITS[ds3231_Time.hour / 10];
-        f[7].segments = VFD_DIGITS[ds3231_Time.hour % 10];
+    if (isAnimationInProgress) {
+        for (uint8_t i = 1; i <= 8; i++) {
+            if (animationDigitTarget[i] != NOT_DIGIT_VALUE) {
+                f[i].segments = VFD_DIGITS[animationDigitCurrent[i]];
+            }
+        }
+    } else {
+        uint8_t br = breathing_level();
 
-        f[6].segments = (blinkers) ? VFD_CHAR_MINUS : 0;
+        switch (currentMode) {
+        case MODE_SHOW_TIME:
+            f[8].segments = VFD_DIGITS[ds3231_Time.hour / 10];
+            f[7].segments = VFD_DIGITS[ds3231_Time.hour % 10];
+            f[6].segments = VFD_CHAR_MINUS;
+            f[6].brightness = br;
 
-        f[5].segments = VFD_DIGITS[ds3231_Time.minutes / 10];
-        f[4].segments = VFD_DIGITS[ds3231_Time.minutes % 10];
+            f[5].segments = VFD_DIGITS[ds3231_Time.minutes / 10];
+            f[4].segments = VFD_DIGITS[ds3231_Time.minutes % 10];
+            f[3].segments = VFD_CHAR_MINUS;
+            f[3].brightness = br;
 
-        f[3].segments = (blinkers) ? VFD_CHAR_MINUS : 0;
+            f[2].segments = VFD_DIGITS[ds3231_Time.seconds / 10];
+            f[1].segments = VFD_DIGITS[ds3231_Time.seconds % 10];
+            break;
+        case MODE_SHOW_DATE:
+            f[8].segments = VFD_DIGITS[ds3231_Date.date / 10];
+            f[7].segments = VFD_DIGITS[ds3231_Date.date % 10];
 
-        f[2].segments = VFD_DIGITS[ds3231_Time.seconds / 10];
-        f[1].segments = VFD_DIGITS[ds3231_Time.seconds % 10];
-        break;
+            f[7].dot = (blinkers ? 0 : 1);
 
-    case MODE_SHOW_DATE:
-        f[8].segments = VFD_DIGITS[ds3231_Date.date / 10];
-        f[7].segments = VFD_DIGITS[ds3231_Date.date % 10];
+            f[6].segments = VFD_DIGITS[ds3231_Date.month / 10];
+            f[5].segments = VFD_DIGITS[ds3231_Date.month % 10];
 
-        f[7].dot = (blinkers) ? 0 : 1;
+            f[5].dot = (blinkers ? 0 : 1);
 
-        f[6].segments = VFD_DIGITS[ds3231_Date.month / 10];
-        f[5].segments = VFD_DIGITS[ds3231_Date.month % 10];
+            f[4].segments = VFD_DIGITS[2];
+            f[3].segments = VFD_DIGITS[0];
 
-        f[5].dot = (blinkers) ? 0 : 1;
-        f[4].segments = VFD_DIGITS[2];
-        f[3].segments = VFD_DIGITS[0];
+            f[2].segments = VFD_DIGITS[ds3231_Date.year / 10];
+            f[1].segments = VFD_DIGITS[ds3231_Date.year % 10];
+            break;
+        case MODE_SHOW_TEMP_DAY:
+            f[8].segments = VFD_DIGITS[ds3231_Temp.temp_1 / 10];
+            f[7].segments = VFD_DIGITS[ds3231_Temp.temp_1 % 10];
 
-        f[2].segments = VFD_DIGITS[ds3231_Date.year / 10];
-        f[1].segments = VFD_DIGITS[ds3231_Date.year % 10];
-        break;
+            f[6].segments = VFD_CHAR_DEGREE;
+            f[5].segments = VFD_CHAR_C;
 
-    case MODE_SHOW_TEMP_DAY:
-        f[8].segments = VFD_DIGITS[ds3231_Temp.temp_1 / 10];
-        f[7].segments = VFD_DIGITS[ds3231_Temp.temp_1 % 10];
-
-        f[6].segments = VFD_CHAR_DEGREE;
-        f[5].segments = VFD_CHAR_C;
-
-        f[1].segments = VFD_DIGITS[ds3231_Date.day];
-        break;
+            f[1].segments = VFD_DIGITS[ds3231_Date.day];
+            break;
+        }
     }
 
     __disable_irq();
@@ -314,9 +469,9 @@ static void build_frame(void) {
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void) {
     /* USER CODE BEGIN 1 */
 
@@ -360,6 +515,8 @@ int main(void) {
     // Arguments: year, month, date, day_of_week, hour, minutes, seconds
     //
     //     DS3231_SetDateTime(26, 6, 29, 1, 1, 36, 45);
+    //
+    // Also see AT+DATE/AT+TIME/AT+DOW in uart_at.c
 
     DS3231_ReadData();
 
@@ -374,30 +531,35 @@ int main(void) {
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */
-        if (shouldReadDS3231) {
-            DS3231_ReadData();
+        if (!isAnimationInProgress && shouldReadDS3231) {    // во время анимации DS3231 не читаем
             shouldReadDS3231 = 0;
+            DS3231_ReadData();
         }
 
-        UART_AT_Poll();
+        if (pendingTransition && !isAnimationInProgress) {
+            pendingTransition = 0;
+            anim_start(pendingMode);
+        }
 
+        anim_step();
+        UART_AT_Poll();
         build_frame();
     }
     /* USER CODE END 3 */
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void) {
     RCC_OscInitTypeDef RCC_OscInitStruct = {0};
     RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
     RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
     /** Initializes the RCC Oscillators according to the specified parameters
-	 * in the RCC_OscInitTypeDef structure.
-	 */
+  * in the RCC_OscInitTypeDef structure.
+  */
     RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
     RCC_OscInitStruct.HSEState = RCC_HSE_ON;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -409,7 +571,7 @@ void SystemClock_Config(void) {
     }
 
     /** Initializes the CPU, AHB and APB buses clocks
-	 */
+  */
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
     RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
@@ -431,9 +593,9 @@ void SystemClock_Config(void) {
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void) {
     /* USER CODE BEGIN Error_Handler_Debug */
     /* User can add his own implementation to report the HAL error return state */
